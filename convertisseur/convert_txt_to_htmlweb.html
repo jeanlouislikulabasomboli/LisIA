@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion de fichiers texte → un seul HTML</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --txt:#e6e8ee; --mut:#9aa3b2; --acc:#4f8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); }
+  .wrap { max-width:980px; margin:0 auto; padding:28px 18px 80px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--mut); margin:0 0 22px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:26px; text-align:center; color:var(--mut); cursor:pointer; }
+  #drop.hot { border-color:var(--acc); color:var(--txt); background:#1b2230; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:7px; padding:9px 14px; font-size:14px; cursor:pointer; }
+  button.ghost { background:#222735; color:var(--txt); border:1px solid var(--line); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  label.row { display:flex; gap:8px; align-items:center; margin:6px 0; }
+  input[type=text] { width:100%; padding:8px; border-radius:7px; border:1px solid var(--line); background:#11141a; color:var(--txt); }
+  textarea { width:100%; min-height:70px; padding:8px; border-radius:7px; border:1px solid var(--line); background:#11141a; color:var(--txt); font:inherit; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--mut); font-weight:600; }
+  td.name { word-break:break-all; }
+  .num { color:var(--mut); white-space:nowrap; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:700px){ .grid2 { grid-template-columns:1fr; } }
+  .tip { color:var(--mut); font-size:13px; }
+  code { background:#11141a; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Fusion de fichiers texte → un seul fichier HTML</h1>
+  <p class="sub">Tout se passe dans votre navigateur : aucun fichier n'est envoyé sur un serveur.</p>
+
+  <div class="panel">
+    <div id="drop">
+      <strong>Glissez-déposez vos fichiers ou un dossier ici</strong><br>
+      ou choisissez ci-dessous
+      <div class="bar" style="justify-content:center;margin-top:14px">
+        <button class="ghost" id="btnFiles">Choisir des fichiers</button>
+        <button class="ghost" id="btnDir">Choisir un dossier</button>
+      </div>
+    </div>
+    <input type="file" id="inFiles" multiple accept=".txt,.md,.markdown,.csv,.tsv,.json,.log,.text,text/*" hidden>
+    <input type="file" id="inDir" webkitdirectory directory multiple hidden>
+  </div>
+
+  <div class="panel">
+    <div class="grid2">
+      <div>
+        <label class="row" style="display:block">Titre de la page
+          <input type="text" id="optTitle" value="Corpus de documents">
+        </label>
+        <label class="row" style="display:block;margin-top:10px">Description (meta description)
+          <textarea id="optDesc">Recueil de documents texte rassemblés dans une page HTML unique, entièrement lisible sans JavaScript.</textarea>
+        </label>
+        <label class="row" style="display:block;margin-top:10px">Nom du fichier de sortie
+          <input type="text" id="optFile" value="index.html">
+        </label>
+      </div>
+      <div>
+        <label class="row"><input type="checkbox" id="optToc" checked> Sommaire cliquable en haut</label>
+        <label class="row"><input type="checkbox" id="optMeta" checked> Afficher chemin / taille / date de chaque fichier</label>
+        <label class="row"><input type="checkbox" id="optPre" checked> Préserver la mise en forme brute (recommandé)</label>
+        <label class="row"><input type="checkbox" id="optJsonld" checked> Inclure des données structurées JSON-LD</label>
+        <label class="row"><input type="checkbox" id="optSort" checked> Trier par nom de fichier</label>
+        <label class="row"><input type="checkbox" id="optDark"> Thème sombre dans le fichier généré</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="bar" style="margin-bottom:12px">
+      <button class="ghost" id="btnAll">Tout cocher</button>
+      <button class="ghost" id="btnNone">Tout décocher</button>
+      <button class="ghost" id="btnClear">Vider la liste</button>
+      <span class="num" id="stats">Aucun fichier</span>
+    </div>
+    <table>
+      <thead><tr><th style="width:34px"></th><th>Fichier</th><th style="width:90px">Taille</th><th style="width:96px">Ordre</th></tr></thead>
+      <tbody id="list"><tr><td colspan="4" class="tip">La liste apparaîtra ici.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel bar">
+    <button id="btnGen" disabled>Générer et télécharger le HTML</button>
+    <button class="ghost" id="btnPreview" disabled>Aperçu dans un onglet</button>
+    <span class="tip">Le fichier produit ne contient aucun script : le texte est directement dans le HTML.</span>
+  </div>
+
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let items = [];   // {name, path, size, date, text, on}
+
+/* ---------- lecture des fichiers ---------- */
+const TEXTY = /\.(txt|text|md|markdown|csv|tsv|json|log|ini|yml|yaml|srt|vtt)$/i;
+
+async function addFiles(fileList){
+  for (const f of fileList){
+    const path = f.webkitRelativePath || f.name;
+    if (!TEXTY.test(f.name) && !(f.type||'').startsWith('text/')) continue;
+    if (items.some(i => i.path === path && i.size === f.size)) continue;
+    let text = '';
+    try { text = await f.text(); } catch(e){ text = '[Lecture impossible]'; }
+    text = text.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/\u0000/g, '');
+    items.push({ name:f.name, path, size:f.size, date:f.lastModified, text, on:true });
+  }
+  render();
+}
+
+async function walkEntry(entry, out){
+  if (entry.isFile){
+    await new Promise(res => entry.file(f => { f.webkitRelativePath ||
+      Object.defineProperty(f,'webkitRelativePath',{value:entry.fullPath.replace(/^\//,'')}); out.push(f); res(); }, res));
+  } else if (entry.isDirectory){
+    const rd = entry.createReader();
+    let batch;
+    do { batch = await new Promise(r => rd.readEntries(r, () => r([])));
+         for (const e of batch) await walkEntry(e, out); } while (batch.length);
+  }
+}
+
+/* ---------- interface ---------- */
+function fmt(n){ return n < 1024 ? n+' o' : n < 1048576 ? (n/1024).toFixed(1)+' Ko' : (n/1048576).toFixed(2)+' Mo'; }
+
+function render(){
+  if ($('#optSort').checked) items.sort((a,b) => a.path.localeCompare(b.path, 'fr', {numeric:true}));
+  const tb = $('#list');
+  if (!items.length){ tb.innerHTML = '<tr><td colspan="4" class="tip">La liste apparaîtra ici.</td></tr>'; }
+  else {
+    tb.innerHTML = items.map((it,i) => `<tr>
+      <td><input type="checkbox" data-i="${i}" class="ck" ${it.on?'checked':''}></td>
+      <td class="name">${esc(it.path)}</td>
+      <td class="num">${fmt(it.size)}</td>
+      <td><button class="ghost" data-up="${i}">↑</button> <button class="ghost" data-dn="${i}">↓</button></td>
+    </tr>`).join('');
+  }
+  const sel = items.filter(i => i.on);
+  const bytes = sel.reduce((s,i) => s + i.text.length, 0);
+  $('#stats').textContent = items.length ? `${sel.length} sélectionné(s) sur ${items.length} · ~${fmt(bytes)} de texte` : 'Aucun fichier';
+  $('#btnGen').disabled = $('#btnPreview').disabled = !sel.length;
+}
+
+$('#list').addEventListener('click', e => {
+  const t = e.target;
+  if (t.classList.contains('ck')) { items[t.dataset.i].on = t.checked; render(); }
+  if (t.dataset.up !== undefined){ const i = +t.dataset.up; if (i>0){ $('#optSort').checked=false; [items[i-1],items[i]]=[items[i],items[i-1]]; render(); } }
+  if (t.dataset.dn !== undefined){ const i = +t.dataset.dn; if (i<items.length-1){ $('#optSort').checked=false; [items[i+1],items[i]]=[items[i],items[i+1]]; render(); } }
+});
+$('#btnAll').onclick = () => { items.forEach(i => i.on = true); render(); };
+$('#btnNone').onclick = () => { items.forEach(i => i.on = false); render(); };
+$('#btnClear').onclick = () => { items = []; render(); };
+$('#optSort').onchange = render;
+$('#btnFiles').onclick = () => $('#inFiles').click();
+$('#btnDir').onclick = () => $('#inDir').click();
+$('#inFiles').onchange = e => addFiles(e.target.files);
+$('#inDir').onchange = e => addFiles(e.target.files);
+
+const drop = $('#drop');
+drop.onclick = () => $('#inFiles').click();
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('hot'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('hot'); }));
+drop.addEventListener('drop', async e => {
+  const dt = e.dataTransfer, out = [];
+  const entries = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  if (entries.length){ for (const en of entries) await walkEntry(en, out); await addFiles(out); }
+  else await addFiles(dt.files);
+});
+
+/* ---------- génération du HTML statique ---------- */
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s){ return esc(s).replace(/"/g,'&quot;'); }
+function slug(s,i){
+  const b = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+  return 'doc-' + (i+1) + (b ? '-' + b.slice(0,50) : '');
+}
+function toParagraphs(t){
+  return t.split(/\n{2,}/).map(b => b.trim()).filter(Boolean)
+          .map(b => '<p>' + esc(b).replace(/\n/g,'<br>\n') + '</p>').join('\n');
+}
+
+function build(){
+  const sel = items.filter(i => i.on);
+  const title = $('#optTitle').value.trim() || 'Corpus de documents';
+  const desc  = $('#optDesc').value.trim().replace(/\s+/g,' ');
+  const dark  = $('#optDark').checked;
+  const now   = new Date();
+  const ids   = sel.map((it,i) => slug(it.name.replace(/\.[^.]+$/,''), i));
+
+  const css = dark
+    ? `:root{color-scheme:dark}body{background:#12141a;color:#e7e9ef}a{color:#78a9ff}.meta{color:#9aa3b2}hr{border-color:#2a2f3a}pre{background:#191d25;border-color:#2a2f3a}`
+    : `body{background:#fff;color:#16181d}a{color:#0b57d0}.meta{color:#5c6470}hr{border-color:#e3e6eb}pre{background:#f6f7f9;border-color:#e3e6eb}`;
+
+  const toc = $('#optToc').checked ? `
+<nav aria-label="Sommaire">
+<h2 id="sommaire">Sommaire (${sel.length} documents)</h2>
+<ol>
+${sel.map((it,i) => `<li><a href="#${ids[i]}">${esc(it.name)}</a></li>`).join('\n')}
+</ol>
+</nav>
+<hr>` : '';
+
+  const jsonld = $('#optJsonld').checked ? `
+<script type="application/ld+json">
+${JSON.stringify({
+  "@context":"https://schema.org","@type":"CollectionPage",
+  name:title, description:desc, inLanguage:"fr", datePublished:now.toISOString(),
+  hasPart: sel.map((it,i) => ({"@type":"CreativeWork", name:it.name, url:"#"+ids[i]}))
+}, null, 1)}
+<\/script>` : '';
+
+  const bodies = sel.map((it,i) => {
+    const meta = $('#optMeta').checked
+      ? `<p class="meta">Fichier : <code>${esc(it.path)}</code> · ${fmt(it.size)} · modifié le ${new Date(it.date).toLocaleString('fr-FR')}</p>` : '';
+    const content = $('#optPre').checked
+      ? `<pre>${esc(it.text)}</pre>`
+      : toParagraphs(it.text);
+    return `<article id="${ids[i]}">
+<h2>${esc(it.name)}</h2>
+${meta}
+${content}
+</article>
+<hr>`;
+  }).join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escAttr(title)}</title>
+<meta name="description" content="${escAttr(desc)}">
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<meta name="generator" content="Fusion de fichiers texte (HTML statique, sans JavaScript)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="${escAttr(title)}">
+<meta property="og:description" content="${escAttr(desc)}">
+<style>
+html{-webkit-text-size-adjust:100%}
+body{margin:0 auto;padding:24px 18px 80px;max-width:860px;
+ font:16px/1.65 Georgia,"Times New Roman",serif;word-wrap:break-word}
+h1{font-size:1.9em;line-height:1.25;margin:0 0 .3em}
+h2{font-size:1.3em;margin:2em 0 .4em;font-family:system-ui,sans-serif}
+.meta{font-size:.85em;margin:.2em 0 1em;font-family:system-ui,sans-serif}
+pre{white-space:pre-wrap;overflow-wrap:break-word;padding:14px;border:1px solid;border-radius:6px;
+ font:14px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+nav ol{font-family:system-ui,sans-serif;font-size:.95em}
+hr{border:0;border-top:1px solid;margin:2.2em 0}
+code{font-family:ui-monospace,Consolas,monospace;font-size:.9em}
+${css}
+</style>
+</head>
+<body>
+<header>
+<h1>${esc(title)}</h1>
+<p class="meta">${sel.length} document(s) · page générée le ${now.toLocaleString('fr-FR')} · contenu intégral en HTML statique</p>
+${desc ? `<p>${esc(desc)}</p>` : ''}
+</header>
+<hr>
+${toc}
+<main>
+${bodies}
+</main>
+<footer>
+<p class="meta">Fin du document. ${sel.length} fichier(s) fusionné(s) : ${sel.map(i => esc(i.name)).join(', ')}.</p>
+</footer>
+${jsonld}
+</body>
+</html>`;
+}
+
+$('#btnGen').onclick = () => {
+  const name = ($('#optFile').value.trim() || 'index.html').replace(/[^\w.\-]/g,'_');
+  const blob = new Blob([build()], {type:'text/html;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = /\.html?$/i.test(name) ? name : name + '.html';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+$('#btnPreview').onclick = () => {
+  const blob = new Blob([build()], {type:'text/html;charset=utf-8'});
+  window.open(URL.createObjectURL(blob), '_blank');
+};
+</script>
+</body>
+</html>
